@@ -1,3 +1,4 @@
 [submodule "addons"]
 	path = addons
-	url = https://github.com/catalize/layak-odoo-addons.git
+	url = https://github.com/LAYAK-Indonesia/layak-odoo-addons.git
+	branch = main
