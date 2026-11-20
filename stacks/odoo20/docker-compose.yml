@@ -1,0 +1,25 @@
+# Odoo 20 test stack: fresh database, target of the ETL from layak-mirror19.
+# Separate project, ports and volumes from layak-odoo (8069) and layak-mirror19 (8070).
+name: layak-odoo20
+services:
+  web:
+    image: odoo:20.0-20261112
+    depends_on: [db]
+    ports:
+      - "127.0.0.1:8071:8069"
+    volumes:
+      - ./config:/etc/odoo
+      - ./addons:/mnt/extra-addons
+      - ../../addons/layak_wa_registration:/mnt/layak-addons/layak_wa_registration
+      - web-data:/var/lib/odoo
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=odoo
+    volumes:
+      - db-data:/var/lib/postgresql/data
+volumes:
+  web-data:
+  db-data:
