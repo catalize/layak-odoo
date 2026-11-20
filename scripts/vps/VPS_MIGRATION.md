@@ -105,3 +105,14 @@ Accounts: `id_mapping_accounts.txt` (columns: kind | old id | new id | code | na
 2026-11-20 get new ids; list all with:
 `select replace(d.name,'account_',''), d.res_id, a.code_store->>'1' from ir_model_data d join account_account a on a.id=d.res_id where d.module='__etl_mirror19__' and d.model='account.account' order by 3`
 (in `odoo20-db`). Codes did not change, so n8n steps that use account codes keep working.
+
+## Result of the 2026-11-20 cutover (for any future use of this script)
+
+Cutover done 2026-11-20 05:18 (VPS time); www.layak.or.id runs on Odoo 20. Fixed in the script afterwards:
+- the shared Caddy network is the intersection of both containers' networks (stops if there are none or several);
+- ETL scripts go into the containers on stdin (no copied 600-mode files), and `sync` makes `xfer/` readable;
+- the Caddyfile is a single-file bind mount: it is now rewritten in place (no `sed -i`, which made Caddy keep the old
+  file and gave ~1 min of 502), and cutover/rollback check that the container sees the new content before reloading.
+Not covered by the bundle and fixed by hand on the VPS: analytic account ids changed (SCHOOL24 1->5, HARMIN24 2->2,
+SCHOOL25 3->6, HARMIN25 4->3, AGENCY25 5->8, SCHOOL26 6->7, HARMIN26 7->4, AGENCY26 8->9, COMMUNITY26 9->1); n8n used
+http://odoo:8069 (now http://odoo20:8069); Odoo 20 hides Bank/Cash accounts on journal items (module layak_account_tweaks).

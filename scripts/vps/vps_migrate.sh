@@ -54,8 +54,11 @@ detect_edge() {
   local nets_odoo nets_caddy n
   nets_odoo="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$PROD_ODOO")"
   nets_caddy="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$CADDY" 2>/dev/null || true)"
-  for n in $nets_odoo; do case " $nets_caddy " in *" $n "*) EDGE_NET="$n"; break ;; esac; done
-  [ -n "$EDGE_NET" ] || die "no docker network shared by $PROD_ODOO and $CADDY; set EDGE_NET"
+  local shared=""
+  for n in $nets_odoo; do case " $nets_caddy " in *" $n "*) shared="$shared $n" ;; esac; done
+  [ -n "$shared" ] || die "no docker network shared by $PROD_ODOO and $CADDY; set EDGE_NET"
+  [ "$(echo $shared | wc -w)" -eq 1 ] || die "$PROD_ODOO and $CADDY share several networks ($shared); set EDGE_NET"
+  EDGE_NET="${shared# }"
   [ "$(echo "$nets_odoo" | wc -w)" -gt 1 ] && warn "$PROD_ODOO is on several networks ($nets_odoo); using the one shared with $CADDY: $EDGE_NET" || true
 }
 http_status_inside() {  # $1 container, $2 path -> HTTP status from inside the container
@@ -198,21 +201,21 @@ enforce_safe_mode() {  # before cutover Odoo 20 must not message customers or ru
 # --------------------------------------------------------------------------------------------- sync
 export_19() {  # $1 script, $2 output name ; runs read-only inside the live Odoo 19 container
   local out="/tmp/layak_etl_$2"
-  docker exec "$PROD_ODOO" mkdir -p /tmp/layak-etl
-  docker cp "$(lp "$BUNDLE/etl/$1")" "$PROD_ODOO:/tmp/layak-etl/$1" >/dev/null
+  # the script goes in on stdin: no copied file whose mode (600 in a closed bundle) the odoo user cannot read
   docker exec -i -e ETL_OUT="$out" "$PROD_ODOO" sh -c '
     set -- ; A="-c /etc/odoo/odoo.conf"
     [ -n "${HOST:-}" ] && A="$A --db_host=$HOST"; [ -n "${PORT:-}" ] && A="$A --db_port=$PORT"
     [ -n "${USER:-}" ] && [ "$USER" != "root" ] && A="$A --db_user=$USER"; [ -n "${PASSWORD:-}" ] && A="$A --db_password=$PASSWORD"
-    odoo shell $A -d '"$DBNAME"' --no-http --log-level=warn < /tmp/layak-etl/'"$1" > "$LOGS/${TS}_export_$2.log" 2>&1 || true
+    odoo shell $A -d '"$DBNAME"' --no-http --log-level=warn' < "$BUNDLE/etl/$1" > "$LOGS/${TS}_export_$2.log" 2>&1 || true
   grep -E "^EXPORT[A-Z_]*_OK" "$LOGS/${TS}_export_$2.log" | sed 's/^/   /' || die "export $1 failed, see $LOGS/${TS}_export_$2.log"
   docker cp "$PROD_ODOO:$out" "$(lp "$XFER/$2")" >/dev/null
   docker exec "$PROD_ODOO" rm -f "$out"
 }
 
 import_20() {  # $1 script ; prints the result lines
-  compose run --rm --no-deps -T -v "$(hp "$BUNDLE/etl"):/etl:ro" -v "$(hp "$XFER"):/xfer:ro" web \
-    sh -c "odoo shell -c /etc/odoo/odoo.conf -d $DBNAME --no-http < /etl/$1" > "$LOGS/${TS}_import_${1%.py}.log" 2>&1 || true
+  # script on stdin; /xfer must be readable by the odoo user in the container (see sync)
+  compose run --rm --no-deps -T -v "$(hp "$XFER"):/xfer:ro" web \
+    sh -c "odoo shell -c /etc/odoo/odoo.conf -d $DBNAME --no-http" < "$BUNDLE/etl/$1" > "$LOGS/${TS}_import_${1%.py}.log" 2>&1 || true
   grep -E "^(LOG|RESULT|COUNTS|DIFF|NAMEDIFF|PROBLEM|FAILED|BALANCE|ROLLED|COMMITTED)" "$LOGS/${TS}_import_${1%.py}.log" | sed 's/^/   /' | head -60
   grep -q "^COMMITTED" "$LOGS/${TS}_import_${1%.py}.log" || die "import $1 did not commit, see $LOGS/${TS}_import_${1%.py}.log"
 }
@@ -226,6 +229,8 @@ sync() {
   export_19 export_website_mirror19.py export_website.json
   export_19 export_config_mirror19.py export_config.json
   say "Import into Odoo 20"
+  # the odoo user inside the container must read the exports; the bundle root itself stays 700
+  chmod 755 "$XFER"; chmod 644 "$XFER"/*
   echo " accounting:"; import_20 import_odoo20.py
   echo " registrations:"; import_20 import_wa_odoo20.py
   echo " projects/sales/mailing/notes:"; import_20 import_apps_odoo20.py
@@ -288,7 +293,11 @@ cutover() {
   docker stop "$PROD_ODOO" >/dev/null && ok "$PROD_ODOO stopped"
   if [ "$SKIP_CADDY" != "1" ]; then
     say "Switch Caddy to Odoo 20"
-    sed -E -i "s/\b${PROD_ODOO}:(8069|8072)\b/${NEW_WEB}:\1/g" "$cf"
+    # write in place (no sed -i): the Caddyfile is a single-file bind mount, and a new inode is invisible to the container
+    local new; new="$(sed -E "s/\b${PROD_ODOO}:(8069|8072)\b/${NEW_WEB}:\1/g" "$cf")"
+    printf '%s\n' "$new" > "$cf"
+    docker exec "$CADDY" grep -qE "\b${NEW_WEB}:8069\b" /etc/caddy/Caddyfile \
+      || { cp -p "$BUNDLE/cutover/Caddyfile.before_${TS}" "$cf"; docker start "$PROD_ODOO"; die "Caddy container does not see the edited Caddyfile; restored and restarted Odoo 19"; }
     diff <(grep -nE "\b(${PROD_ODOO}|${NEW_WEB}):[0-9]+" "$BUNDLE/cutover/Caddyfile.before_${TS}") <(grep -nE "\b(${PROD_ODOO}|${NEW_WEB}):[0-9]+" "$cf") | sed 's/^/   /' || true
     docker exec "$CADDY" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
       || { cp -p "$BUNDLE/cutover/Caddyfile.before_${TS}" "$cf"; docker start "$PROD_ODOO"; die "new Caddyfile invalid; restored and restarted Odoo 19"; }
@@ -316,7 +325,9 @@ rollback() {
   local last; last="$(ls -1t "$BUNDLE"/cutover/Caddyfile.before_* 2>/dev/null | head -1 || true)"
   if [ "$SKIP_CADDY" != "1" ]; then
     [ -n "$last" ] || die "no Caddyfile backup found"
-    cp -p "$last" "$(caddyfile_host_path)"
+    cat "$last" > "$(caddyfile_host_path)"   # in place, same reason as in cutover
+    docker exec "$CADDY" grep -qE "\b${PROD_ODOO}:8069\b" /etc/caddy/Caddyfile \
+      || die "Caddy container does not see the restored Caddyfile; check the bind mount, then: docker restart $CADDY"
     docker exec "$CADDY" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile && ok "Caddy back on Odoo 19 ($last)"
   fi
   docker start "$PROD_ODOO" >/dev/null && ok "$PROD_ODOO started"
