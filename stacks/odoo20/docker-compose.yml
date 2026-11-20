@@ -10,7 +10,7 @@ services:
     volumes:
       - ./config:/etc/odoo
       - ./addons:/mnt/extra-addons
-      - ../../addons/layak_wa_registration:/mnt/layak-addons/layak_wa_registration
+      - ../../addons:/mnt/layak-addons
       - web-data:/var/lib/odoo
   db:
     image: postgres:16
