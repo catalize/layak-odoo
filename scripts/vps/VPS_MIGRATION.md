@@ -26,7 +26,9 @@ against a copy of production. Only the Caddy edit and the public URL checks coul
 - `cutover` only after Andrew explicitly says go. `rollback` only if Andrew agrees (or the site is down).
 - Do not push or change any git repository.
 - This bundle contains the database (financial data, password hashes, API-key hashes, bot tokens).
-  Keep it under /root (`chmod -R go-rwx`), and delete `data/`, `xfer/` and `cutover/` when Andrew confirms the migration is done.
+  Keep it under /root and close the bundle folder itself (`chmod 700` on the folder, `chmod -R go-rwx data cutover`),
+  but leave `etl/` and `xfer/` readable: Odoo inside the containers runs as a non-root user and must read them.
+  Delete `data/`, `xfer/` and `cutover/` when Andrew confirms the migration is done.
 
 ## Bundle contents
 

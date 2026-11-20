@@ -50,8 +50,13 @@ psql_new()  { docker exec -i "$NEW_DB" psql -U odoo -d "$DBNAME" -qAt -v ON_ERRO
 compose()   { (cd "$NEW_DIR" && docker compose "$@"); }
 detect_edge() {
   [ -n "$EDGE_NET" ] && return
-  EDGE_NET="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$PROD_ODOO" | awk '{print $1}')"
-  [ -n "$EDGE_NET" ] || die "cannot detect the docker network of $PROD_ODOO; set EDGE_NET"
+  # the network that BOTH the live Odoo and Caddy are on (Caddy must reach the new container there)
+  local nets_odoo nets_caddy n
+  nets_odoo="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$PROD_ODOO")"
+  nets_caddy="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$CADDY" 2>/dev/null || true)"
+  for n in $nets_odoo; do case " $nets_caddy " in *" $n "*) EDGE_NET="$n"; break ;; esac; done
+  [ -n "$EDGE_NET" ] || die "no docker network shared by $PROD_ODOO and $CADDY; set EDGE_NET"
+  [ "$(echo "$nets_odoo" | wc -w)" -gt 1 ] && warn "$PROD_ODOO is on several networks ($nets_odoo); using the one shared with $CADDY: $EDGE_NET" || true
 }
 http_status_inside() {  # $1 container, $2 path -> HTTP status from inside the container
   docker exec "$1" python3 -c "
