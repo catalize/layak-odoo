@@ -103,7 +103,7 @@ stage() {
   [ -e "$NEW_DIR/docker-compose.yml" ] && die "$NEW_DIR already staged (remove it yourself only if you are sure)"
   say "Files in $NEW_DIR"
   mkdir -p "$NEW_DIR/config" "$NEW_DIR/addons-layak" "$NEW_DIR/addons-om"
-  tar xzf "$BUNDLE/addons/layak_wa_registration_1b8135c.tar.gz" -C "$NEW_DIR/addons-layak"
+  tar xzf "$BUNDLE/addons/layak_wa_registration_181bfa4.tar.gz" -C "$NEW_DIR/addons-layak"
   tar xzf "$BUNDLE/addons/odoomates_20.0.tar.gz" -C "$NEW_DIR/addons-om"
   ok "addons: $(ls "$NEW_DIR/addons-layak" | tr '\n' ' ')+ $(ls -d "$NEW_DIR"/addons-om/*/ | wc -l) Odoo Mates modules"
   local pgpass; pgpass="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-32)"

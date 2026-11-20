@@ -37,7 +37,7 @@ against a copy of production. Only the Caddy edit and the public URL checks coul
 | `vps_migrate.sh` | the migration script (phases above) |
 | `data/layak20.dump` | Odoo 20 database (pg_dump custom format), restored as `layak_db` |
 | `data/filestore_layak20.tar.gz` | its attachments (renamed to `layak_db` on restore) |
-| `addons/layak_wa_registration_1b8135c.tar.gz` | LAYAK School registration module ported to Odoo 20 (addons repo, branch `migration/20.0`, commit 1b8135c) |
+| `addons/layak_wa_registration_181bfa4.tar.gz` | LAYAK School registration module ported to Odoo 20 (addons repo, branch `migration/20.0`, commit 181bfa4) |
 | `addons/odoomates_20.0.tar.gz` | Odoo Mates accounting modules, 20.0 branch, commit ac70c59 (21 modules, incl. new dependencies) |
 | `etl/` | export (run inside the live Odoo 19 container) and import (run in Odoo 20) scripts, with README |
 | `xfer/reclass_applied.json` | 39 account reclassifications Andrew approved; re-applied on every sync |
